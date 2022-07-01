@@ -1,0 +1,57 @@
+ARG bootstrap_version
+ARG image="vitess/bootstrap:${bootstrap_version}-common"
+
+FROM "${image}" AS builder
+
+WORKDIR /opt
+#Build xtrabackup
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    autoconf \
+    automake \
+    bison \
+    build-essential \
+    bzr \
+    ca-certificates \
+    cmake \
+    flex \
+    libaio-dev \
+    libcurl4-gnutls-dev \
+    libev-dev \
+    libgcrypt20-dev \
+    libncurses-dev \
+    libtool \
+    default-mysql-client \
+    vim-common \
+    wget \
+    zlib1g-dev && \
+    wget https://github.com/percona/percona-xtrabackup/archive/percona-xtrabackup-2.4.13.tar.gz \
+        -P /opt && \
+    tar zxf /opt/percona-xtrabackup-2.4.13.tar.gz -C /opt && \
+    rm /opt/percona-xtrabackup-2.4.13.tar.gz && \
+    cd /opt/percona-xtrabackup-percona-xtrabackup-2.4.13 && \
+    mkdir bld && cd bld && \
+    cmake .. -DBUILD_CONFIG=xtrabackup_release -DWITH_MAN_PAGES=OFF \
+        -DDOWNLOAD_BOOST=1 -DWITH_BOOST=/usr/local && \
+    make -j4 && \
+    make install
+
+FROM "${image}"
+
+RUN apt-get update -y \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      bzip2 \
+      mariadb-server \
+      libmariadbclient-dev \
+      libdbd-mysql-perl \
+      rsync \
+      libev4 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /vt/src/vitess.io/vitess
+COPY --from=builder /usr/local/xtrabackup/bin /usr/local/xtrabackup/bin
+COPY --from=builder /usr/local/xtrabackup/lib /usr/local/xtrabackup/lib
+ENV PATH="/usr/local/xtrabackup/bin:${PATH}"
+ENV MYSQL_FLAVOR MySQL56
+USER vitess
+RUN ./bootstrap.sh
